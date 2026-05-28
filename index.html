@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusCraft Studio - Tudo em Um</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #1e1e22;
+            --panel-dark: #2c2c32;
+            --accent-blue: #007acc;
+            --accent-green: #00a86b;
+            --text-main: #ffffff;
+            --border-color: #3e3e46;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        /* Tela de Loading */
+        #loading-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #25252b 0%, #121214 100%);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Workspace Grid (Roblox Studio Layout) */
+        #studio-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .toolbar {
+            height: 50px;
+            background-color: var(--panel-dark);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .logo span { color: var(--accent-blue); font-weight: bold; }
+        .tools { display: flex; gap: 8px; align-items: center; }
+
+        button {
+            background: #3a3a42;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #4a4a54; }
+        button.active { background: var(--accent-blue); border-color: #0098ff; }
+        .btn-play { background: var(--accent-green); border: none; font-weight: bold; }
+        .btn-play:hover { background: #00c47d; }
+
+        .workspace {
+            display: flex;
+            flex: 1;
+            width: 100%;
+            height: calc(100% - 50px);
+        }
+
+        .sidebar {
+            width: 260px;
+            background-color: var(--panel-dark);
+            border-right: 1px solid var(--border-color);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .right-panel { border-right: none; border-left: 1px solid var(--border-color); }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+        }
+
+        canvas { width: 100%; height: 100%; display: block; }
+
+        /* HUD Overlay In-Game */
+        #hud-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .chat-box {
+            width: 320px;
+            height: 160px;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border-radius: 6px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            pointer-events: auto;
+        }
+
+        #chat-messages { flex: 1; overflow-y: auto; color: #fff; font-size: 13px; margin-bottom: 5px;}
+        #chat-input {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white; padding: 6px; border-radius: 4px; outline: none;
+        }
+
+        .prop-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .prop-row input, .prop-row select {
+            background: #1e1e22;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 4px;
+            border-radius: 4px;
+            width: 100px;
+        }
+
+        .hidden { display: none !important; }
+        .perf-stats { font-size: 12px; color: #888; }
+        ul { list-style: none; padding-left: 15px; font-size: 13px; }
+        li { margin: 4px 0; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <h2>NEXUSCRAFT MULTI-ENGINE</h2>
+        <p>Injetando módulos WebGL e compilando física...</p>
+    </div>
+
+    <div id="studio-container">
+        <header class="toolbar">
+            <div class="logo">Nexus<span>Studio</span></div>
+            <div class="tools">
+                <button id="tool-select" class="active" onclick="setMode('translate')">Mover Peça</button>
+                <button onclick="spawnPart()">+ Criar Bloco (Part)</button>
+                <button onclick="spawnTerrain()">+ Gerar Terreno</button>
+                <div style="width: 1px; height: 20px; background: var(--border-color); margin: 0 10px;"></div>
+                <button onclick="togglePlayMode()" id="btn-play" class="btn-play">JOGAR</button>
+            </div>
+            <div class="perf-stats">FPS: <span id="fps-val">60</span> | Ping: <span id="ping-val">15ms</span></div>
+        </header>
+
+        <div class="workspace">
+            <aside class="sidebar left-panel">
+                <h3>Explorer</h3>
+                <hr style="border-color: var(--border-color);">
+                <ul id="explorer-tree">
+                    <li>📁 Workspace
+                        <ul id="workspace-items">
+                            <li>☀️ Lighting (Dynamic)</li>
+                            <li>🗺️ Baseplate</li>
+                        </ul>
+                    </li>
+                </ul>
+            </aside>
+
+            <main id="canvas-container">
+                <div id="hud-overlay" class="hidden">
+                    <div class="chat-box">
+                        <div id="chat-messages"><div>[Sistema]: Bem-vindo ao servidor sandbox multiplayer!</div></div>
+                        <input type="text" id="chat-input" placeholder="Pressione Enter para falar...">
+                    </div>
+                    <div style="color: white; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; width: 200px; pointer-events: auto;">
+                        <p><b>Controles:</b></p>
+                        <p>WASD - Mover</p>
+                        <p>Espaço - Pular</p>
+                        <p>Mouse - Olhar</p>
+                    </div>
+                </div>
+            </main>
+
+            <aside class="sidebar right-panel">
+                <h3>Properties</h3>
+                <hr style="border-color: var(--border-color);">
+                <div id="properties-panel">
+                    <p style="color: #666; font-size: 12px;">Selecione um bloco no mapa clicando nele para editar suas propriedades.</p>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTES E CONFIGURAÇÃO GLOBAL ---
+        const container = document.getElementById('canvas-container');
+        let scene, camera, renderer, clock;
+        let isPlayMode = false;
+        let objects3D = [];
+        let selectedObject = null;
+        let localPlayer = null;
+        let physicsWorld;
+        let inputHandler;
+        let raycaster, mouse;
+
+        // Métricas de FPS
+        let fpsVal = document.getElementById('fps-val');
+        let lastTime = performance.now(), frames = 0;
+
+        // --- SISTEMA DE FÍSICA (AABB CUSTOM ENGINE) ---
+        class AABBPhysics {
+            constructor() {
+                this.actors = [];
+                this.gravity = -32;
+            }
+            addActor(actor) { this.actors.push(actor); }
+            removeActor(actor) { this.actors = this.actors.filter(a => a !== actor); }
+            
+            update(delta, statics) {
+                for (let actor of this.actors) {
+                    actor.velocity.y += this.gravity * delta;
+                    let projectedPos = actor.mesh.position.clone().add(actor.velocity.clone().multiplyScalar(delta));
+                    actor.isGrounded = false;
+
+                    // Caixa de colisão do jogador (AABB)
+                    let pMinX = projectedPos.x - 1, pMaxX = projectedPos.x + 1;
+                    let pMinY = projectedPos.y - 1.5, pMaxY = projectedPos.y + 1.5;
+                    let pMinZ = projectedPos.z - 1, pMaxZ = projectedPos.z + 1;
+
+                    for (let obj of statics) {
+                        if (!obj.isCollidable) continue;
+                        if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+                        
+                        let box = obj.geometry.boundingBox.clone().applyMatrix4(obj.matrixWorld);
+
+                        // Teste de intersecção AABB 3D
+                        if (pMaxX > box.min.x && pMinX < box.max.x &&
+                            pMaxY > box.min.y && pMinY < box.max.y &&
+                            pMaxZ > box.min.z && pMinZ < box.max.z) {
+                            
+                            // Colisão por Cima (Chão)
+                            if (actor.mesh.position.y >= box.max.y - 0.3) {
+                                projectedPos.y = box.max.y + 1.5;
+                                actor.velocity.y = 0;
+                                actor.isGrounded = true;
+                            } else {
+                                // Colisão Lateral Rígida
+                                actor.velocity.x = 0;
+                                actor.velocity.z = 0;
+                                projectedPos.x = actor.mesh.position.x;
+                                projectedPos.z = actor.mesh.position.z;
+                            }
+                        }
+                    }
+                    actor.mesh.position.copy(projectedPos);
+                    if(actor.mesh.position.y < -50) { actor.mesh.position.set(0,10,0); actor.velocity.set(0,0,0); }
+                }
+            }
+        }
+
+        // --- ATUADOR: AVATAR ESTILO ROBLOX (R6 MODULAR) ---
+        class RobloxAvatar {
+            constructor() {
+                this.mesh = new THREE.Group();
+                this.velocity = new THREE.Vector3();
+                this.isGrounded = false;
+                this.speed = 14;
+                this.jumpForce = 15;
+                this.buildCharacter();
+            }
+
+            buildCharacter() {
+                const skinMat = new THREE.MeshStandardMaterial({ color: 0xffe0bd, roughness: 0.7 });
+                const torsoMat = new THREE.MeshStandardMaterial({ color: 0x0055ff, roughness: 0.7 });
+                const legMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
+
+                // Cabeça
+                this.head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), skinMat);
+                this.head.position.y = 2.1;
+                this.mesh.add(this.head);
+
+                // Torso
+                this.torso = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 1), torsoMat);
+                this.torso.position.y = 0.5;
+                this.mesh.add(this.torso);
+
+                // Braços e Pernas
+                this.leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2, 1), skinMat);
+                this.leftArm.position.set(-1.4, 0.5, 0);
+                this.mesh.add(this.leftArm);
+
+                this.rightArm = this.leftArm.clone();
+                this.rightArm.position.x = 1.4;
+                this.mesh.add(this.rightArm);
+
+                this.leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2, 1), legMat);
+                this.leftLeg.position.set(-0.55, -1.5, 0);
+                this.mesh.add(this.leftLeg);
+
+                this.rightLeg = this.leftLeg.clone();
+                this.rightLeg.position.x = 0.55;
+                this.mesh.add(this.rightLeg);
+
+                // Sombra do Personagem
+                this.mesh.castShadow = true;
+                this.mesh.traverse(child => { if(child.isMesh) child.castShadow = true; });
+
+                // Billboard Tag Name
+                this.addNametag("Player_Guest");
+            }
+
+            addNametag(name) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256; canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(0,0,256,64);
+                ctx.font = 'bold 26px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.fillText(name, 128, 42);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+                sprite.position.y = 3.3;
+                sprite.scale.set(3, 0.75, 1);
+                this.mesh.add(sprite);
+            }
+
+            update(delta, input, cam) {
+                let dir = new THREE.Vector3();
+                cam.getWorldDirection(dir);
+                dir.y = 0; dir.normalize();
+                let side = new THREE.Vector3(-dir.z, 0, dir.x);
+
+                let move = new THREE.Vector3();
+                if(input.keys['w'] || input.keys['arrowup']) move.add(dir);
+                if(input.keys['s'] || input.keys['arrowdown']) move.sub(dir);
+                if(input.keys['a'] || input.keys['arrowleft']) move.sub(side);
+                if(input.keys['d'] || input.keys['arrowright']) move.add(side);
+
+                if(move.lengthSq() > 0) {
+                    move.normalize();
+                    this.velocity.x = move.x * this.speed;
+                    this.velocity.z = move.z * this.speed;
+
+                    // Rotacionar malha para direção do movimento
+                    let angle = Math.atan2(move.x, move.z);
+                    this.mesh.rotation.y = angle;
+
+                    // Animação Procedural R6 (Membros Balançando)
+                    let time = Date.now() * 0.012;
+                    this.leftArm.rotation.x = Math.sin(time) * 0.7;
+                    this.rightArm.rotation.x = -Math.sin(time) * 0.7;
+                    this.leftLeg.rotation.x = -Math.sin(time) * 0.7;
+                    this.rightLeg.rotation.x = Math.sin(time) * 0.7;
+                } else {
+                    this.velocity.x = 0; this.velocity.z = 0;
+                    this.leftArm.rotation.x *= 0.8; this.rightArm.rotation.x *= 0.8;
+                    this.leftLeg.rotation.x *= 0.8; this.rightLeg.rotation.x *= 0.8;
+                }
+
+                if(input.keys[' '] && this.isGrounded) {
+                    this.velocity.y = this.jumpForce;
+                    this.isGrounded = false;
+                }
+
+                // Câmera segue jogador em terceira pessoa orbital estável
+                cam.position.set(this.mesh.position.x, this.mesh.position.y + 8, this.mesh.position.z + 22);
+                cam.lookAt(this.mesh.position.clone().add(new THREE.Vector3(0,1,0)));
+            }
+        }
+
+        // --- SISTEMA DE ENTRADAS ---
+        class Input {
+            constructor() {
+                this.keys = {};
+                window.addEventListener('keydown', (e) => this.keys[e.key.toLowerCase()] = true);
+                window.addEventListener('keyup', (e) => this.keys[e.key.toLowerCase()] = false);
+            }
+        }
+
+        // --- SISTEMA CENTRAL DA ENGINE ---
+        function initEngine() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x7ec0ee); // Céu Roblox Clássico
+            scene.fog = new THREE.FogExp2(0x7ec0ee, 0.01);
+
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, 20, 40);
+            camera.lookAt(0,0,0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Iluminação
+            let amb = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(amb);
+            let sun = new THREE.DirectionalLight(0xffffff, 1.0);
+            sun.position.set(40, 100, 20);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
+            scene.add(sun);
+
+            // Baseplate Inicial Rígida
+            let bpGeo = new THREE.BoxGeometry(150, 2, 150);
+            let bpMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.9 }); // Verde Grama
+            let baseplate = new THREE.Mesh(bpGeo, bpMat);
+            baseplate.position.y = -1;
+            baseplate.receiveShadow = true;
+            baseplate.isCollidable = true;
+            baseplate.name = "Baseplate";
+            scene.add(baseplate);
+            objects3D.push(baseplate);
+
+            // Grid Visual auxiliar do estúdio
+            let grid = new THREE.GridHelper(150, 75, 0x007acc, 0x555555);
+            grid.position.y = 0.01;
+            scene.add(grid);
+
+            // Instancia Sub-Sistemas
+            physicsWorld = new AABBPhysics();
+            inputHandler = new Input();
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            clock = new THREE.Clock();
+
+            // Evento de seleção no Canvas
+            window.addEventListener('pointerdown', onMapClick);
+            window.addEventListener('resize', onResize);
+
+            // Esconder Loading Screen
+            document.getElementById('loading-screen').style.opacity = 0;
+            setTimeout(() => document.getElementById('loading-screen').style.display='none', 500);
+
+            // Iniciar o Loop
+            animate();
+        }
+
+        // --- SISTEMA DE CRIAÇÃO (ROBLOX STUDIO WORKSPACE) ---
+        function spawnPart() {
+            let partGeo = new THREE.BoxGeometry(4, 4, 4);
+            let partMat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff, roughness: 0.4 });
+            let mesh = new THREE.Mesh(partGeo, partMat);
+            mesh.position.set(Math.random()*20-10, 2, Math.random()*20-10);
+            mesh.castShadow = true; mesh.receiveShadow = true;
+            mesh.isCollidable = true;
+            mesh.name = "Part_" + objects3D.length;
+
+            scene.add(mesh);
+            objects3D.push(mesh);
+            selectObject(mesh);
+            updateExplorer();
+        }
+
+        function spawnTerrain() {
+            // Gerador procedural simples de montanhas de blocos (Estilo Voxel/Roblox Simples)
+            for(let x = -5; x <= 5; x++) {
+                for(let z = -5; z <= 5; z++) {
+                    let h = Math.floor(Math.sin(x*0.5) * Math.cos(z*0.5) * 3) + 4;
+                    let blockGeo = new THREE.BoxGeometry(4, h, 4);
+                    let blockMat = new THREE.MeshStandardMaterial({ color: 0x558b2f, roughness: 1.0 });
+                    let block = new THREE.Mesh(blockGeo, blockMat);
+                    block.position.set(x*4, h/2, z*4);
+                    block.castShadow = true; block.receiveShadow = true;
+                    block.isCollidable = true;
+                    block.name = `TerrainBlock_${x}_${z}`;
+                    scene.add(block);
+                    objects3D.push(block);
+                }
+            }
+            updateExplorer();
+        }
+
+        function onMapClick(e) {
+            if (e.target.tagName !== 'CANVAS' || isPlayMode) return;
+            let rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            let intersects = raycaster.intersectObjects(objects3D);
+
+            if (intersects.length > 0 && intersects[0].object.name !== "Baseplate") {
+                selectObject(intersects[0].object);
+            }
+        }
+
+        function selectObject(obj) {
+            if(selectedObject) selectedObject.material.emissive.setHex(0x000000);
+            selectedObject = obj;
+            selectedObject.material.emissive.setHex(0x223344); // Glow de Seleção
+            showProperties(obj);
+        }
+
+        function showProperties(obj) {
+            const panel = document.getElementById('properties-panel');
+            panel.innerHTML = `
+                <div class="prop-row"><label>Nome:</label><input type="text" id="p-name" value="${obj.name}"></div>
+                <div class="prop-row"><label>Altura (Y):</label><input type="number" id="p-posy" step="0.5" value="${obj.position.y}"></div>
+                <div class="prop-row"><label>Cor:</label><input type="color" id="p-color" value="#${obj.material.color.getHexString()}"></div>
+                <div class="prop-row"><label>Colisão:</label><select id="p-coll"><option value="true" ${obj.isCollidable?'selected':''}>True</option><option value="false" ${!obj.isCollidable?'selected':''}>False</option></select></div>
+                <button onclick="deleteSelected()" style="background:#d9534f; width:100%; margin-top:10px; border:none; padding:8px;">Deletar Objeto</button>
+            `;
+
+            document.getElementById('p-name').addEventListener('input', (e) => { obj.name = e.target.value; updateExplorer(); });
+            document.getElementById('p-posy').addEventListener('input', (e) => { obj.position.y = parseFloat(e.target.value); });
+            document.getElementById('p-color').addEventListener('input', (e) => { obj.material.color.set(e.target.value); });
+            document.getElementById('p-coll').addEventListener('change', (e) => { obj.isCollidable = e.target.value === 'true'; });
+        }
+
+        function deleteSelected() {
+            if(!selectedObject) return;
+            scene.remove(selectedObject);
+            objects3D = objects3D.filter(o => o !== selectedObject);
+            selectedObject = null;
+            document.getElementById('properties-panel').innerHTML = '<p style="color:#666; font-size:12px;">Objeto removido.</p>';
+            updateExplorer();
+        }
+
+        function updateExplorer() {
+            const el = document.getElementById('workspace-items');
+            el.innerHTML = `<li>☀️ Lighting (Dynamic)</li><li>🗺️ Baseplate</li>` + 
+                objects3D.filter(o => o.name !== "Baseplate").map(o => `<li>📦 ${o.name}</li>`).join('');
+        }
+
+        // --- SISTEMA GAMEPLAY ENGINE (PLAY MODE) ---
+        function togglePlayMode() {
+            isPlayMode = !isPlayMode;
+            const btn = document.getElementById('btn-play');
+            const hud = document.getElementById('hud-overlay');
+
+            if(isPlayMode) {
+                btn.innerText = "PARAR";
+                btn.style.backgroundColor = "#d9534f";
+                hud.classList.remove('hidden');
+
+                // Spawn do Personagem
+                localPlayer = new RobloxAvatar();
+                localPlayer.mesh.position.set(0, 10, 0);
+                scene.add(localPlayer.mesh);
+                physicsWorld.addActor(localPlayer);
+            } else {
+                btn.innerText = "JOGAR";
+                btn.style.backgroundColor = "var(--accent-green)";
+                hud.classList.add('hidden');
+
+                // Remove Personagem e limpa Câmera
+                if(localPlayer) {
+                    physicsWorld.removeActor(localPlayer);
+                    scene.remove(localPlayer.mesh);
+                    localPlayer = null;
+                }
+                camera.position.set(0, 20, 40);
+                camera.lookAt(0,0,0);
+            }
+        }
+
+        // --- ENGINE LOOP PRINCIPAL ---
+        function animate() {
+            requestAnimationFrame(animate);
+            let delta = Math.min(clock.getDelta(), 0.1); // Anti-lag cap
+
+            if (isPlayMode && localPlayer) {
+                physicsWorld.update(delta, objects3D);
+                localPlayer.update(delta, inputHandler, camera);
+            }
+
+            renderer.render(scene, camera);
+            updateFPSCounter();
+        }
+
+        function updateFPSCounter() {
+            frames++;
+            let time = performance.now();
+            if (time >= lastTime + 1000) {
+                fpsVal.innerText = Math.round((frames * 1000) / (time - lastTime));
+                frames = 0; lastTime = time;
+            }
+        }
+
+        function onResize() {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // --- CHAT INTERATIVO MOCKUP ---
+        document.getElementById('chat-input').addEventListener('keydown', function(e) {
+            if(e.key === 'Enter' && this.value.trim() !== "") {
+                const msgBox = document.getElementById('chat-messages');
+                msgBox.innerHTML += `<div><b>[Guest]:</b> ${this.value}</div>`;
+                msgBox.scrollTop = msgBox.scrollHeight;
+                this.value = "";
+            }
+        });
+
+        // Simulação de atividade de rede multiplayer (Ping Falso)
+        setInterval(() => {
+            document.getElementById('ping-val').innerText = (Math.floor(Math.random() * 8) + 12) + "ms";
+        }, 3000);
+
+        // Inicializar no carregamento do documento
+        window.onload = initEngine;
+    </script>
+</body>
+</html>
